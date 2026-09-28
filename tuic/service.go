@@ -7,11 +7,13 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"runtime"
 	"sync"
 	"time"
 
 	"github.com/sagernet/quic-go"
+	"github.com/sagernet/quic-go/http3"
 	qtls "github.com/sagernet/sing-quic"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/auth"
@@ -37,6 +39,7 @@ type ServiceOptions struct {
 	Heartbeat             time.Duration
 	UDPTimeout            time.Duration
 	Handler               ServiceHandler
+	MasqueradeHandler     http.Handler
 	MaxPacketSize         int
 	DisableStatelessReset bool
 }
@@ -59,7 +62,8 @@ type Service[U comparable] struct {
 	udpTimeout        time.Duration
 	maxPacketSize     int
 	handler           ServiceHandler
-	quicListener io.Closer
+	masqueradeHandler http.Handler
+	quicListener      io.Closer
 }
 
 func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
@@ -98,6 +102,7 @@ func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
 		udpTimeout:        options.UDPTimeout,
 		maxPacketSize:     options.MaxPacketSize,
 		handler:           options.Handler,
+		masqueradeHandler: options.MasqueradeHandler,
 	}, nil
 }
 
@@ -113,8 +118,11 @@ func (s *Service[U]) UpdateUsers(userList []U, uuidList [][16]byte, passwordList
 }
 
 func (s *Service[U]) Start(conn net.PacketConn) error {
+	listenOptions := qtls.ListenOptions{
+		StatelessReset: !s.quicConfig.DisableStatelessReset,
+	}
 	if !s.quicConfig.Allow0RTT {
-		listener, err := qtls.Listen(conn, s.tlsConfig, s.quicConfig)
+		listener, err := qtls.ListenWithOptions(conn, s.tlsConfig, s.quicConfig, listenOptions)
 		if err != nil {
 			return err
 		}
@@ -134,7 +142,7 @@ func (s *Service[U]) Start(conn net.PacketConn) error {
 			}
 		}()
 	} else {
-		listener, err := qtls.ListenEarly(conn, s.tlsConfig, s.quicConfig)
+		listener, err := qtls.ListenEarlyWithOptions(conn, s.tlsConfig, s.quicConfig, listenOptions)
 		if err != nil {
 			return err
 		}
@@ -172,6 +180,28 @@ func (s *Service[U]) handleConnection(connection *quic.Conn) {
 		connDone:   make(chan struct{}),
 		authDone:   make(chan struct{}),
 		udpConnMap: make(map[uint16]*udpPacketConn),
+	}
+	if s.masqueradeHandler != nil {
+		if s.ctx.Done() != nil {
+			go func() {
+				select {
+				case <-s.ctx.Done():
+					session.closeWithError(s.ctx.Err())
+				case <-session.connDone:
+				}
+			}()
+		}
+		go session.loopUniStreams()
+		go session.loopMessages()
+		go session.handleAuthTimeout()
+		go session.loopHeartbeats()
+		httpServer := http3.Server{
+			Handler:          s.masqueradeHandler,
+			StreamDispatcher: session.dispatchStream,
+		}
+		_ = httpServer.ServeQUICConn(connection)
+		_ = connection.CloseWithError(0, "")
+		return
 	}
 	session.handle()
 }
@@ -333,6 +363,24 @@ func (s *serverSession[U]) loopStreams() {
 	}
 }
 
+func (s *serverSession[U]) dispatchStream(frameType http3.FrameType, stream *quic.Stream, err error) (bool, error) {
+	if err != nil {
+		return false, nil
+	}
+	if frameType == Version {
+		go func() {
+			hErr := s.handleStream(stream)
+			if hErr != nil {
+				stream.CancelRead(0)
+				stream.Close()
+				s.logger.Error(E.Cause(hErr, "handle stream request"))
+			}
+		}()
+		return true, nil
+	}
+	return false, nil
+}
+
 func (s *serverSession[U]) handleStream(stream *quic.Stream) error {
 	buffer := buf.NewSize(2 + M.MaxSocksaddrLength)
 	defer buffer.Release()
@@ -367,7 +415,6 @@ func (s *serverSession[U]) handleStream(stream *quic.Stream) error {
 	s.handler.NewConnectionEx(auth.ContextWithUser(s.ctx, s.authUser), conn, M.SocksaddrFromNet(s.quicConn.RemoteAddr()).Unwrap(), destination, nil)
 	return nil
 }
-
 func (s *serverSession[U]) loopHeartbeats() {
 	ticker := time.NewTicker(s.heartbeat)
 	defer ticker.Stop()

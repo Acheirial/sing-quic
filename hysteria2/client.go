@@ -49,10 +49,11 @@ type ClientOptions struct {
 	Password           string
 	TLSConfig          aTLS.Config
 	QUICOptions        qtls.QUICOptions
-	UDPDisabled        bool
-	BBRProfile         string
-	ChromeParrot       bool
-	RealmOptions       *realm.Options
+	UDPDisabled             bool
+	BBRProfile              string
+	ChromeParrot            bool
+	RealmOptions            *realm.Options
+	DisablePathMTUDiscovery bool
 }
 
 type Client struct {
@@ -95,6 +96,9 @@ func NewClient(options ClientOptions) (*Client, error) {
 		MaxIdleTimeout:                 hysteria.DefaultMaxIdleTimeout,
 		KeepAlivePeriod:                hysteria.DefaultKeepAlivePeriod,
 		ChromeParrot:                   options.ChromeParrot,
+	}
+	if options.DisablePathMTUDiscovery {
+		quicConfig.DisablePathMTUDiscovery = true
 	}
 	qtls.ApplyQUICOptions(quicConfig, options.QUICOptions)
 	if len(options.TLSConfig.NextProtos()) == 0 {
