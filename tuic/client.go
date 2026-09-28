@@ -32,6 +32,7 @@ type ClientOptions struct {
 	UDPStream         bool
 	ZeroRTTHandshake  bool
 	Heartbeat         time.Duration
+	MaxPacketSize     int
 }
 
 type Client struct {
@@ -46,6 +47,7 @@ type Client struct {
 	udpStream         bool
 	zeroRTTHandshake  bool
 	heartbeat         time.Duration
+	maxPacketSize     int
 
 	connAccess sync.Mutex
 	conn       *clientQUICConnection
@@ -82,6 +84,7 @@ func NewClient(options ClientOptions) (*Client, error) {
 		udpStream:         options.UDPStream,
 		zeroRTTHandshake:  options.ZeroRTTHandshake,
 		heartbeat:         options.Heartbeat,
+		maxPacketSize:     options.MaxPacketSize,
 	}, nil
 }
 
@@ -260,7 +263,7 @@ func (c *Client) ListenPacket(ctx context.Context) (net.PacketConn, error) {
 		return nil, err
 	}
 	var sessionID uint16
-	clientPacketConn := newUDPPacketConn(c.ctx, conn.quicConn, c.udpStream, false, func() {
+	clientPacketConn := newUDPPacketConn(c.ctx, conn.quicConn, c.udpStream, false, c.maxPacketSize, func() {
 		conn.releaseUDPSession(sessionID)
 	})
 	conn.access.Lock()

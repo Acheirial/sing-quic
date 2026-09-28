@@ -48,6 +48,7 @@ type ServiceOptions struct {
 	MasqueradeHandler     http.Handler
 	BBRProfile            string
 	RealmOptions          *realm.Options
+	DisableStatelessReset bool
 }
 
 type ServerHandler interface {
@@ -90,6 +91,7 @@ func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
 		MaxIdleTimeout:                 hysteria.DefaultMaxIdleTimeout,
 		KeepAlivePeriod:                hysteria.DefaultKeepAlivePeriod,
 		DisablePathManager:             true,
+		DisableStatelessReset:          options.DisableStatelessReset,
 	}
 	qtls.ApplyQUICOptions(quicConfig, options.QUICOptions)
 	bbrProfile := congestion_meta2.ProfileStandard

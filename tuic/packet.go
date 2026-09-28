@@ -138,8 +138,12 @@ type udpPacketConn struct {
 	readDeadline    pipe.Deadline
 }
 
-func newUDPPacketConn(ctx context.Context, quicConn *quic.Conn, udpStream bool, isServer bool, onDestroy func()) *udpPacketConn {
+func newUDPPacketConn(ctx context.Context, quicConn *quic.Conn, udpStream bool, isServer bool, maxPacketSize int, onDestroy func()) *udpPacketConn {
 	ctx, cancel := context.WithCancelCause(ctx)
+	mtu := 1200 - 3
+	if maxPacketSize > 0 {
+		mtu = maxPacketSize - 3
+	}
 	return &udpPacketConn{
 		ctx:          ctx,
 		cancel:       cancel,
@@ -149,7 +153,7 @@ func newUDPPacketConn(ctx context.Context, quicConn *quic.Conn, udpStream bool, 
 		isServer:     isServer,
 		defragger:    newUDPDefragger(),
 		onDestroy:    onDestroy,
-		udpMTU:       1200 - 3,
+		udpMTU:       mtu,
 		readDeadline: pipe.MakeDeadline(),
 	}
 }

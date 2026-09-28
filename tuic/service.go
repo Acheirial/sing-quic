@@ -27,16 +27,18 @@ import (
 )
 
 type ServiceOptions struct {
-	Context           context.Context
-	Logger            logger.Logger
-	TLSConfig         aTLS.ServerConfig
-	QUICOptions       qtls.QUICOptions
-	CongestionControl string
-	AuthTimeout       time.Duration
-	ZeroRTTHandshake  bool
-	Heartbeat         time.Duration
-	UDPTimeout        time.Duration
-	Handler           ServiceHandler
+	Context               context.Context
+	Logger                logger.Logger
+	TLSConfig             aTLS.ServerConfig
+	QUICOptions           qtls.QUICOptions
+	CongestionControl     string
+	AuthTimeout           time.Duration
+	ZeroRTTHandshake      bool
+	Heartbeat             time.Duration
+	UDPTimeout            time.Duration
+	Handler               ServiceHandler
+	MaxPacketSize         int
+	DisableStatelessReset bool
 }
 
 type ServiceHandler interface {
@@ -55,8 +57,8 @@ type Service[U comparable] struct {
 	congestionControl string
 	authTimeout       time.Duration
 	udpTimeout        time.Duration
+	maxPacketSize     int
 	handler           ServiceHandler
-
 	quicListener io.Closer
 }
 
@@ -74,6 +76,7 @@ func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
 		MaxIncomingStreams:      1 << 60,
 		MaxIncomingUniStreams:   1 << 60,
 		DisablePathManager:      true,
+		DisableStatelessReset:   options.DisableStatelessReset,
 	}
 	qtls.ApplyQUICOptions(quicConfig, options.QUICOptions)
 	switch options.CongestionControl {
@@ -93,6 +96,7 @@ func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
 		congestionControl: options.CongestionControl,
 		authTimeout:       options.AuthTimeout,
 		udpTimeout:        options.UDPTimeout,
+		maxPacketSize:     options.MaxPacketSize,
 		handler:           options.Handler,
 	}, nil
 }
