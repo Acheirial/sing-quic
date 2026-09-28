@@ -77,6 +77,7 @@ type Service[U comparable] struct {
 	quicListener          io.Closer
 	bbrProfile            congestion_meta2.Profile
 	realmServer           *realm.Server
+	disableStatelessReset bool
 }
 
 func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
@@ -91,7 +92,6 @@ func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
 		MaxIdleTimeout:                 hysteria.DefaultMaxIdleTimeout,
 		KeepAlivePeriod:                hysteria.DefaultKeepAlivePeriod,
 		DisablePathManager:             true,
-		DisableStatelessReset:          options.DisableStatelessReset,
 	}
 	qtls.ApplyQUICOptions(quicConfig, options.QUICOptions)
 	bbrProfile := congestion_meta2.ProfileStandard
@@ -147,6 +147,7 @@ func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
 		masqueradeHandler:     options.MasqueradeHandler,
 		bbrProfile:            bbrProfile,
 		realmServer:           realmServer,
+		disableStatelessReset: options.DisableStatelessReset,
 	}, nil
 }
 
@@ -174,7 +175,7 @@ func (s *Service[U]) Start(conn net.PacketConn) error {
 	obfsEnabled := s.geckoPassword != "" || s.salamanderPassword != ""
 	listener, err := qtls.ListenWithOptions(conn, s.tlsConfig, s.quicConfig, qtls.ListenOptions{
 		DisableVersionNegotiationPackets: obfsEnabled,
-		StatelessReset:                   !obfsEnabled && !s.quicConfig.DisableStatelessReset,
+		StatelessReset:                   !obfsEnabled && !s.disableStatelessReset,
 	})
 	if err != nil {
 		return err
@@ -202,7 +203,7 @@ func (s *Service[U]) startWithRealm(conn net.PacketConn) error {
 	obfsEnabled := s.geckoPassword != "" || s.salamanderPassword != ""
 	listener, err := qtls.ListenWithOptions(quicConn, s.tlsConfig, s.quicConfig, qtls.ListenOptions{
 		DisableVersionNegotiationPackets: obfsEnabled,
-		StatelessReset:                   !obfsEnabled && !s.quicConfig.DisableStatelessReset,
+		StatelessReset:                   !obfsEnabled && !s.disableStatelessReset,
 	})
 	if err != nil {
 		return E.Errors(err, s.realmServer.Close())

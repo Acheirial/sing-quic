@@ -62,8 +62,9 @@ type Service[U comparable] struct {
 	udpTimeout        time.Duration
 	maxPacketSize     int
 	handler           ServiceHandler
-	masqueradeHandler http.Handler
-	quicListener      io.Closer
+	masqueradeHandler     http.Handler
+	disableStatelessReset bool
+	quicListener          io.Closer
 }
 
 func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
@@ -80,7 +81,6 @@ func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
 		MaxIncomingStreams:      1 << 60,
 		MaxIncomingUniStreams:   1 << 60,
 		DisablePathManager:      true,
-		DisableStatelessReset:   options.DisableStatelessReset,
 	}
 	qtls.ApplyQUICOptions(quicConfig, options.QUICOptions)
 	switch options.CongestionControl {
@@ -101,8 +101,9 @@ func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
 		authTimeout:       options.AuthTimeout,
 		udpTimeout:        options.UDPTimeout,
 		maxPacketSize:     options.MaxPacketSize,
-		handler:           options.Handler,
-		masqueradeHandler: options.MasqueradeHandler,
+		handler:               options.Handler,
+		masqueradeHandler:     options.MasqueradeHandler,
+		disableStatelessReset: options.DisableStatelessReset,
 	}, nil
 }
 
@@ -119,7 +120,7 @@ func (s *Service[U]) UpdateUsers(userList []U, uuidList [][16]byte, passwordList
 
 func (s *Service[U]) Start(conn net.PacketConn) error {
 	listenOptions := qtls.ListenOptions{
-		StatelessReset: !s.quicConfig.DisableStatelessReset,
+		StatelessReset: !s.disableStatelessReset,
 	}
 	if !s.quicConfig.Allow0RTT {
 		listener, err := qtls.ListenWithOptions(conn, s.tlsConfig, s.quicConfig, listenOptions)
